@@ -1,0 +1,10 @@
+[Unit]
+Description=Tool to perform custom charging on android phones with a USB hub
+After=network.target
+
+[Service]
+ExecStart=/opt/phone-charger/charge-phone
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+# VERSION 0.1.0
+
+from time import sleep
+
+import re
+import shutil
+import subprocess
+from argparse import ArgumentParser
+
+uhubctl = shutil.which('uhubctl') or '/usr/sbin/uhubctl'
+
+
+def get_command(exe, *args):
+    if ' ' in exe and not args:
+        return exe.split(' ')
+    else:
+        return [exe] + [str(i) for i in args]
+
+
+def call(exe, *args, **kwargs):
+    return subprocess.call(get_command(exe, *args), **kwargs)
+
+
+def run(exe, *args, **kwargs):
+    return subprocess.check_output(get_command(exe, *args), **kwargs).decode().strip().split('\n')
+
+
+def get_adb_devices():
+    return {
+        m.group(1): m.group(2)
+        for m in [re.match(r'([a-f0-9]{8})\s+(.*)', i) for i in run('adb devices')]
+        if m
+    }
+
+
+def get_level(device_id):
+    attributes = {
+        i.split(':')[0].strip(): i.split(':')[-1].strip()
+        for i in run('adb', '-s', device_id, 'shell', 'dumpsys', 'battery')
+        if ':' in i
+    }
+    return int(attributes['level'])
+
+
+def enable_power():
+    call(uhubctl, '-a', 1)  # Port 2 controls all ports on pi
+
+
+def disable_power():
+    call(uhubctl, '-a', 0)
+
+
+def main():
+    parser = ArgumentParser()
+    parser.add_argument('--min-charge', type=int, default=75)
+    parser.add_argument('--max-charge', type=int, default=85)
+    parser.add_argument('--delay-time', type=int, default=3)
+    args = parser.parse_args()
+    enable_power()
+    is_charging = False
+    while True:
+        devices = dict(get_adb_devices())
+        needs_charging, needs_stopping = [], []
+        for device, device_name in devices.items():
+            level = get_level(device)
+            print('Device:', device, 'Level:', level)
+            if level < args.min_charge:
+                needs_charging.append((device_name, level))
+            if level > args.max_charge:
+                needs_stopping.append((device_name, level))
+        if needs_charging and not is_charging:
+            print('Devices need charging: {}'.format(', '.join('{} - {}'.format(*i) for i in needs_charging)))
+            enable_power()
+        elif len(needs_stopping) == len(devices) and is_charging:
+            print('All devices charged to {}.'.format(args.max_level))
+
+        sleep(args.delay_time)
+
+
+if __name__ == '__main__':
+    main()
